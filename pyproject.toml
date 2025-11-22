@@ -1,0 +1,15 @@
+[project]
+name = "lobotomycorporation"
+version = "0.1.0"
+description = "mcpservice"
+requires-python = ">=3.13"
+dependencies = [
+    "docling>=2.63.0",
+    "fastmcp>=2.13.1",
+    "langchain>=1.0.7",
+    "langchain-deepseek>=1.0.1",
+    "langchain-milvus>=0.3.0",
+    "langchain-ollama>=1.0.0",
+    "langgraph>=1.0.3",
+    "raganything[all]>=1.2.8",
+]
