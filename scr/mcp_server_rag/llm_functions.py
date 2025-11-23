@@ -6,19 +6,17 @@ functions compatible with the RAG Anything framework. These functions handle
 communication with LightRAG and external LLM/Vision APIs.
 
 Functions:
-    _handle_coroutine_result: Handle potential coroutine return values
     create_llm_model_func: Create LLM model function factory
     create_vision_model_func: Create vision model function factory
     create_embedding_func: Create embedding function factory
 """
 
 
-import asyncio
 import logging
-from typing import Callable, Optional, Any
+from typing import Callable, Optional
 
-from langchain_ollama import OllamaEmbeddings
 from lightrag.llm.openai import openai_complete_if_cache, openai_embed
+from lightrag.llm.ollama import ollama_embed
 from lightrag.utils import EmbeddingFunc
 
 from .config import MCSConfig
@@ -26,52 +24,21 @@ from .config import MCSConfig
 logger = logging.getLogger(__name__)
 
 
-def _handle_coroutine_result(result: Any) -> str:
-    """
-    Handle potential coroutine return values from LightRAG functions.
-    
-    LightRAG functions may return either a string or a coroutine depending on
-    the context. This function detects and properly handles both cases.
-
-    Args:
-        result: The result from LightRAG function (could be str or coroutine)
-
-    Returns:
-        str: The actual string result
-
-    Raises:
-        RuntimeError: If coroutine execution fails
-    """
-    if asyncio.iscoroutine(result):
-        try:
-            # Check if we're already in an async context
-            asyncio.get_running_loop()
-            logger.warning("Coroutine returned in async context, returning empty string")
-            return ""
-        except RuntimeError:
-            # No running loop, safe to use run_until_complete
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                result = loop.run_until_complete(result)
-            finally:
-                loop.close()
-
-    return result if isinstance(result, str) else str(result)
-
-
 def create_llm_model_func(config: MCSConfig) -> Callable:
     """
     Create LLM model function for RAGAnything using OpenAI API.
-    
+
     This factory function creates a callable that can be used by RAGAnything
     to make LLM API calls. The returned function handles:
     - API communication with configured LLM provider
     - Conversation history management
     - System prompts
     - Temperature and token limits
-    - Coroutine handling
     - Error handling and logging
+
+    Note: The function returns the result directly from openai_complete_if_cache,
+    which can be either a string or a coroutine. The RAGAnything framework
+    handles both cases automatically.
 
     Args:
         config: MCSConfig instance with LLM configuration
@@ -79,7 +46,7 @@ def create_llm_model_func(config: MCSConfig) -> Callable:
     Returns:
         Callable: LLM model function with signature:
             (prompt: str, system_prompt: Optional[str] = None,
-             history_messages: Optional[list] = None, **kwargs) -> str
+             history_messages: Optional[list] = None, **kwargs) -> str or coroutine
 
     Example:
         # >>> config = MCSConfig.from_env()
@@ -92,7 +59,7 @@ def create_llm_model_func(config: MCSConfig) -> Callable:
         system_prompt: Optional[str] = None,
         history_messages: Optional[list] = None,
         **kwargs
-    ) -> str:
+    ):
         """
         Call LLM API with the configured provider.
 
@@ -103,7 +70,7 @@ def create_llm_model_func(config: MCSConfig) -> Callable:
             **kwargs: Additional arguments passed to the LLM
 
         Returns:
-            str: LLM response text
+            str or coroutine: LLM response text (can be string or coroutine)
 
         Raises:
             Exception: If LLM API call fails
@@ -112,7 +79,8 @@ def create_llm_model_func(config: MCSConfig) -> Callable:
             history_messages = []
 
         try:
-            result = openai_complete_if_cache(
+            # Return the result directly - let RAGAnything framework handle coroutines
+            return openai_complete_if_cache(
                 config.llm.model,
                 prompt,
                 system_prompt=system_prompt,
@@ -123,7 +91,6 @@ def create_llm_model_func(config: MCSConfig) -> Callable:
                 max_tokens=config.llm.max_tokens,
                 **kwargs,
             )
-            return _handle_coroutine_result(result)
         except Exception as e:
             logger.error(f"Error calling LLM: {e}")
             raise
@@ -134,7 +101,7 @@ def create_llm_model_func(config: MCSConfig) -> Callable:
 def create_vision_model_func(config: MCSConfig) -> Callable:
     """
     Create vision model function for multimodal processing.
-    
+
     This factory function creates a callable for processing multimodal content
     including images, tables, and equations. The returned function supports:
     - Pre-formatted messages for VLM enhanced queries
@@ -142,6 +109,10 @@ def create_vision_model_func(config: MCSConfig) -> Callable:
     - Text fallback to LLM when no images provided
     - Proper message formatting for vision models
     - Error handling and logging
+
+    Note: The function returns the result directly from openai_complete_if_cache,
+    which can be either a string or a coroutine. The RAGAnything framework
+    handles both cases automatically.
 
     Args:
         config: MCSConfig instance with vision configuration
@@ -151,7 +122,7 @@ def create_vision_model_func(config: MCSConfig) -> Callable:
             (prompt: str, system_prompt: Optional[str] = None,
              history_messages: Optional[list] = None,
              image_data: Optional[str] = None,
-             messages: Optional[list] = None, **kwargs) -> str
+             messages: Optional[list] = None, **kwargs) -> str or coroutine
 
     Example:
         # >>> config = MCSConfig.from_env()
@@ -166,7 +137,7 @@ def create_vision_model_func(config: MCSConfig) -> Callable:
         image_data: Optional[str] = None,
         messages: Optional[list] = None,
         **kwargs
-    ) -> str:
+    ):
         """
         Call vision model API for image/multimodal processing.
 
@@ -179,7 +150,7 @@ def create_vision_model_func(config: MCSConfig) -> Callable:
             **kwargs: Additional arguments
 
         Returns:
-            str: Vision model response
+            str or coroutine: Vision model response (can be string or coroutine)
 
         Raises:
             Exception: If vision model API call fails
@@ -190,7 +161,7 @@ def create_vision_model_func(config: MCSConfig) -> Callable:
         try:
             # If messages format is provided (for multimodal VLM enhanced query), use it directly
             if messages:
-                result = openai_complete_if_cache(
+                return openai_complete_if_cache(
                     config.vision.model or config.llm.model,
                     "",
                     system_prompt=None,
@@ -200,7 +171,6 @@ def create_vision_model_func(config: MCSConfig) -> Callable:
                     base_url=config.vision.base_url or config.llm.base_url,
                     **kwargs,
                 )
-                return _handle_coroutine_result(result)
 
             # Traditional single image format
             elif image_data:
@@ -220,7 +190,7 @@ def create_vision_model_func(config: MCSConfig) -> Callable:
                     ],
                 })
 
-                result = openai_complete_if_cache(
+                return openai_complete_if_cache(
                     config.vision.model or config.llm.model,
                     "",
                     system_prompt=None,
@@ -230,7 +200,6 @@ def create_vision_model_func(config: MCSConfig) -> Callable:
                     base_url=config.vision.base_url or config.llm.base_url,
                     **kwargs,
                 )
-                return _handle_coroutine_result(result)
 
             # Pure text format - fallback to LLM
             else:
@@ -247,13 +216,16 @@ def create_vision_model_func(config: MCSConfig) -> Callable:
 def create_embedding_func(config: MCSConfig) -> EmbeddingFunc:
     """
     Create embedding function for RAGAnything.
-    
+
     This factory function creates an embedding function wrapper that can be
     used by RAGAnything for text vectorization. The function:
-    - Uses OpenAI-compatible embedding API
+    - Uses Ollama or OpenAI-compatible embedding API
     - Handles configurable embedding dimensions
     - Manages token size limits
     - Provides proper error handling
+
+    Note: Uses LightRAG's ollama_embed or openai_embed functions which properly
+    handle async/sync contexts, similar to the LLM functions.
 
     Args:
         config: MCSConfig instance with embedding configuration
@@ -270,15 +242,32 @@ def create_embedding_func(config: MCSConfig) -> EmbeddingFunc:
         # >>> embeddings = embedding_func(["Hello", "World"])
     """
     try:
-        embedding_func = EmbeddingFunc(
-            embedding_dim=config.embedding.dimension,
-            max_token_size=8192,
-            func=lambda texts: OllamaEmbeddings(
-                model=config.embedding.model,
-                base_url=config.embedding.host,
-            ).embed_documents(texts),
-        )
-        logger.info(f"Embedding function created: {config.embedding.model} (dim={config.embedding.dimension})")
+        # Use Ollama embedding if configured
+        if config.embedding.use_ollama:
+            embedding_func = EmbeddingFunc(
+                embedding_dim=config.embedding.dimension,
+                max_token_size=8192,
+                func=lambda texts: ollama_embed(
+                    texts,
+                    embed_model=config.embedding.model,
+                    host=config.embedding.host,
+                ),
+            )
+            logger.info(f"Ollama embedding function created: {config.embedding.model} (dim={config.embedding.dimension})")
+        else:
+            # Use OpenAI-compatible embedding
+            embedding_func = EmbeddingFunc(
+                embedding_dim=config.embedding.dimension,
+                max_token_size=8192,
+                func=lambda texts: openai_embed(
+                    texts,
+                    model=config.embedding.model,
+                    api_key=config.llm.api_key,
+                    base_url=config.llm.base_url,
+                ),
+            )
+            logger.info(f"OpenAI embedding function created: {config.embedding.model} (dim={config.embedding.dimension})")
+
         return embedding_func
     except Exception as e:
         logger.error(f"Error creating embedding function: {e}")

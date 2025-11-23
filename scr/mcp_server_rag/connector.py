@@ -54,6 +54,7 @@ class RAGAnythingConnector:
                 working_dir=self.config.rag.working_dir,
                 parser=self.config.rag.parser,
                 parse_method=self.config.rag.parse_method,
+
                 enable_image_processing=self.config.rag.enable_image,
                 enable_table_processing=self.config.rag.enable_table,
                 enable_equation_processing=self.config.rag.enable_equation,
@@ -100,7 +101,7 @@ class RAGAnythingConnector:
         Process a single document
 
         Args:
-            file_path: Path to document
+            file_path: Path to document(./docs_tmp)
             parse_method: Parse method (optional)
             **kwargs: Additional arguments
 
